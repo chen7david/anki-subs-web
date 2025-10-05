@@ -9,6 +9,13 @@ import {
   Alert,
 } from "antd";
 import { InboxOutlined, UploadOutlined } from "@ant-design/icons";
+import { useSetAtom } from "jotai";
+import {
+  parsedCuesAtom,
+  rawSubtitleFileAtom,
+  editedCuesAtom,
+} from "../state/subtitles";
+import { parseSubtitleContent } from "../utils/subtitleParser";
 
 const { Title, Paragraph } = Typography;
 const { Dragger } = AntUpload;
@@ -21,6 +28,9 @@ export default function Upload() {
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [isUploading, setIsUploading] = useState(false);
   const navigate = useNavigate();
+  const setRawFile = useSetAtom(rawSubtitleFileAtom);
+  const setParsed = useSetAtom(parsedCuesAtom);
+  const setEdited = useSetAtom(editedCuesAtom);
 
   /**
    * Handles file selection from upload component
@@ -41,8 +51,20 @@ export default function Upload() {
 
     setIsUploading(true);
 
-    // Simulate upload process
-    await new Promise((resolve) => setTimeout(resolve, 2000));
+    // Read file and parse subtitles
+    try {
+      const text = await selectedFile.text();
+      const cues = parseSubtitleContent(text);
+      setRawFile(selectedFile);
+      setParsed(cues);
+      setEdited(cues);
+      // Simulate brief processing delay for UX
+      await new Promise((resolve) => setTimeout(resolve, 250));
+    } catch (e) {
+      console.error("Failed to parse subtitle file", e);
+      setIsUploading(false);
+      return;
+    }
 
     setIsUploading(false);
     navigate("/edit");

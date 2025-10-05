@@ -1,3 +1,4 @@
+import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   Card,
@@ -6,33 +7,52 @@ import {
   Button,
   Space,
   Typography,
-  Row,
-  Col,
   Popconfirm,
   message,
 } from "antd";
 import { ArrowLeftOutlined, CheckOutlined } from "@ant-design/icons";
-
-const { Title, Paragraph } = Typography;
-const { TextArea } = Input;
 import { useAtom, useSetAtom } from "jotai";
 import {
   editedCuesAtom,
   deleteCueAtom,
   mergeWithNextCueAtom,
 } from "../state/subtitles";
-import { msToSrtTimestamp } from "../utils/subtitleParser";
+
+const { Title, Paragraph } = Typography;
+const { TextArea } = Input;
 
 /**
  * Edit page component for subtitle editing interface
- * Allows users to modify subtitle text and timing
+ * Cleaner version — text-only editing with infinite scroll
  */
 export default function Edit() {
-  const [subtitles, setSubtitles] = useAtom(editedCuesAtom);
+  const [subtitles] = useAtom(editedCuesAtom);
+  const setSubtitles = useSetAtom(editedCuesAtom);
   const deleteCue = useSetAtom(deleteCueAtom);
   const mergeNext = useSetAtom(mergeWithNextCueAtom);
   const [messageApi, contextHolder] = message.useMessage();
   const navigate = useNavigate();
+
+  // Infinite scroll state
+  const BATCH_SIZE = 50;
+  const [visibleCount, setVisibleCount] = useState(BATCH_SIZE);
+
+  useEffect(() => {
+    const handleScroll = () => {
+      if (
+        window.innerHeight + window.scrollY >=
+        document.body.offsetHeight - 300
+      ) {
+        setVisibleCount((prev) =>
+          Math.min(prev + BATCH_SIZE, subtitles.length)
+        );
+      }
+    };
+    window.addEventListener("scroll", handleScroll);
+    return () => window.removeEventListener("scroll", handleScroll);
+  }, [subtitles.length]);
+
+  const visibleSubs = subtitles.slice(0, visibleCount);
 
   /**
    * Updates subtitle text for a specific entry
@@ -46,41 +66,26 @@ export default function Edit() {
   };
 
   /**
-   * Updates subtitle timing for a specific entry
-   * @param id - Subtitle entry ID
-   * @param field - Time field to update ('startTime' or 'endTime')
-   * @param value - New time value
-   */
-  const updateSubtitleTime = (
-    id: number,
-    field: "startMs" | "endMs",
-    value: string
-  ) => {
-    const ms = valueToMs(value);
-    setSubtitles((prev) =>
-      prev.map((sub) => (sub.id === id ? { ...sub, [field]: ms } : sub))
-    );
-  };
-
-  function valueToMs(value: string): number {
-    const normalized = value.replace(".", ",");
-    const match = normalized.match(/(\d{2}):(\d{2}):(\d{2}),(\d{1,3})/);
-    if (!match) return 0;
-    const [, hh, mm, ss, mmm] = match;
-    return (
-      parseInt(hh, 10) * 3600000 +
-      parseInt(mm, 10) * 60000 +
-      parseInt(ss, 10) * 1000 +
-      parseInt(mmm.padEnd(3, "0"), 10)
-    );
-  }
-
-  /**
-   * Handles processing completion and navigation to download page
+   * Handles processing completion and submission to backend
    */
   const handleProcessComplete = async () => {
-    messageApi.success("Edits prepared. Proceed to download.");
-    navigate("/download");
+    console.log("Submitting edited subtitles:", subtitles);
+
+    try {
+      const res = await fetch("/api/subtitles", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(subtitles),
+      });
+
+      if (!res.ok) throw new Error("Failed to upload edits");
+
+      messageApi.success("Edits submitted successfully!");
+      navigate("/download");
+    } catch (err) {
+      console.error("Upload error:", err);
+      messageApi.error("Failed to submit edits. Please try again.");
+    }
   };
 
   return (
@@ -93,62 +98,25 @@ export default function Edit() {
             Edit Subtitles
           </Title>
           <Paragraph style={{ color: "#666" }}>
-            Review and edit your subtitle content and timing
+            Review and edit your subtitle text content below.
           </Paragraph>
         </div>
 
-        {/* Subtitle entries */}
+        {/* Subtitle entries (infinite scroll) */}
         <Space direction="vertical" size="middle" style={{ width: "100%" }}>
-          {subtitles.map((subtitle, idx) => (
+          {visibleSubs.map((subtitle, idx) => (
             <Card
               key={subtitle.id}
               size="small"
-              title={`Subtitle #${subtitle.id}`}
-              style={{ border: "1px solid #f0f0f0" }}
+              style={{
+                border: "1px solid #f0f0f0",
+                boxShadow: "0 1px 3px rgba(0,0,0,0.05)",
+              }}
             >
-              <Row gutter={[16, 16]}>
-                <Col xs={24} sm={8}>
-                  <Form.Item label="Start Time" style={{ marginBottom: "8px" }}>
-                    <Input
-                      value={msToSrtTimestamp(subtitle.startMs)}
-                      onChange={(e) =>
-                        updateSubtitleTime(
-                          subtitle.id,
-                          "startMs",
-                          e.target.value
-                        )
-                      }
-                      placeholder="00:00:00,000"
-                    />
-                  </Form.Item>
-                </Col>
-
-                <Col xs={24} sm={8}>
-                  <Form.Item label="End Time" style={{ marginBottom: "8px" }}>
-                    <Input
-                      value={msToSrtTimestamp(subtitle.endMs)}
-                      onChange={(e) =>
-                        updateSubtitleTime(subtitle.id, "endMs", e.target.value)
-                      }
-                      placeholder="00:00:00,000"
-                    />
-                  </Form.Item>
-                </Col>
-
-                <Col xs={24} sm={8}>
-                  <Form.Item label="Duration" style={{ marginBottom: "8px" }}>
-                    <Input
-                      value={msToSrtTimestamp(
-                        Math.max(0, subtitle.endMs - subtitle.startMs)
-                      )}
-                      disabled
-                      style={{ backgroundColor: "#f5f5f5" }}
-                    />
-                  </Form.Item>
-                </Col>
-              </Row>
-
-              <Form.Item label="Text Content" style={{ marginBottom: 0 }}>
+              <Form.Item
+                label={`Subtitle #${subtitle.id}`}
+                style={{ marginBottom: 0 }}
+              >
                 <TextArea
                   value={subtitle.text}
                   onChange={(e) =>
@@ -184,6 +152,12 @@ export default function Edit() {
               </div>
             </Card>
           ))}
+
+          {visibleCount < subtitles.length && (
+            <div style={{ textAlign: "center", padding: 16, color: "#888" }}>
+              Loading more subtitles...
+            </div>
+          )}
         </Space>
 
         {/* Action buttons */}
@@ -208,7 +182,7 @@ export default function Edit() {
               icon={<CheckOutlined />}
               onClick={handleProcessComplete}
             >
-              Complete & Download
+              Complete & Upload
             </Button>
           </div>
         </Card>

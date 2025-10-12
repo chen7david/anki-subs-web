@@ -17,6 +17,7 @@ import {
   deleteCueAtom,
   mergeWithNextCueAtom,
 } from "../state/subtitles";
+import http from "../service/http.service"; // ✅ import the Axios wrapper
 
 const { Title, Paragraph } = Typography;
 const { TextArea } = Input;
@@ -71,20 +72,19 @@ export default function Edit() {
   const handleProcessComplete = async () => {
     console.log("Submitting edited subtitles:", subtitles);
 
-    try {
-      const res = await fetch("/api/subtitles", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(subtitles),
-      });
 
-      if (!res.ok) throw new Error("Failed to upload edits");
+    try {
+      const res = await http.post("users/subs", { subs: subtitles.map((e) => e.text)}); // ✅ Axios call
+      console.log("Response from backend:", res);
 
       messageApi.success("Edits submitted successfully!");
       navigate("/download");
-    } catch (err) {
+    } catch (err: any) {
       console.error("Upload error:", err);
-      messageApi.error("Failed to submit edits. Please try again.");
+      messageApi.error(
+        err?.response?.data?.message ||
+          "Failed to submit edits. Please try again."
+      );
     }
   };
 
